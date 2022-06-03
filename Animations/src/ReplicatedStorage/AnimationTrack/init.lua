@@ -2,7 +2,6 @@ local AnimationTrack = {}
 AnimationTrack.__index = AnimationTrack
 
 local RunSvc = game:GetService("RunService")
-local TweenSvc = game:GetService("TweenService")
 local Bindable = Instance.new("BindableEvent")
 
 local Animation = require(script.Animation)
@@ -19,6 +18,7 @@ function AnimationTrack.new(KeyframeSequence : KeyframeSequence, Rig : Model)
 	self.Looped = KeyframeSequence.Loop
 	self.Priority = KeyframeSequence.Priority
 	self.TimePosition = 0
+	self.InstantAnimation = false
 	
 	--READ-ONLY
 	self._Speed = 1
@@ -66,22 +66,13 @@ local function poseHasChildren(pose: Pose)
 	return #(pose:GetChildren()) > 0
 end
 
-local function setHrpTransform(self, pose)
-	local Info = {
-		Time = self._CurrentKFTime;
-		EasingStyle = (string.split(tostring(pose.EasingStyle), "."))[3];
-		EasingDirection = (string.split(tostring(pose.EasingDirection), "."))[3];
-		Reverses = false; --Subject to change
-		DelayTime = 0;
-		RepeatCount = 0;
-	}
-	self._Virtual6Ds[pose.Name]:Transform(nil, pose.CFrame)
-end
 
---The first keyframe just sets the CFrames of the motors of the rig.
+
+--[[
+	This functions handles the very first keyframe. Set AnimationTrack.InstantAnimation to true if you want
+	the body parts to smoothly animate to the first keyframe animation.
+]]
 local function fromParentPoseOfK1(self, children)
-	--setHrpTransform(self, self._OrganizedKeyframes[1].HumanoidRootPart)
-	
 	for _, pose : Pose in ipairs(children or self._OrganizedKeyframes[1].HumanoidRootPart:GetChildren()) do
 		local Info = {
 			Time = self._CurrentKFTime;
@@ -91,16 +82,23 @@ local function fromParentPoseOfK1(self, children)
 			DelayTime = 0;
 			RepeatCount = 0;
 		}
-		self._Virtual6Ds[pose.Name]:Transform(nil, pose.CFrame)
+		if self.InstantAnimation then
+			self._Virtual6Ds[pose.Name]:Transform(nil, pose.CFrame)
+		else
+			self._Virtual6Ds[pose.Name]:Transform(Info, pose.CFrame)
+		end
+		
 		if poseHasChildren(pose) then
 			fromParentPoseOfK1(self, pose:GetSubPoses())
 		end
 	end
 end
 
+--[[
+	This function handles the rest of the keyframes, apart from the very first keyframe.
+
+]]
 local function fromParentPose(self, nextKeyframe, children)
-	--setHrpTransform(self, nextKeyframe.HumanoidRootPart)
-	
 	for _, pose : Pose in ipairs(children or nextKeyframe.HumanoidRootPart:GetChildren()) do
 		local Info = {
 			Time = self._CurrentKFTime;
@@ -127,7 +125,6 @@ function AnimationTrack:_InitRestOfKfs(NextKeyframe)
 end
 
 function AnimationTrack:_LoopPlay()
-	print("k")
 	while self.IsPlaying do
 		for i, kf : Keyframe in ipairs(self._OrganizedKeyframes) do
 			local kf_begin = os.clock()
@@ -135,7 +132,9 @@ function AnimationTrack:_LoopPlay()
 			if NextKf then
 				self._CurrentKFTime =  math.abs(NextKf.Time - kf.Time)
 				self:_InitRestOfKfs(NextKf)
-				repeat task.wait() until (os.clock()-kf_begin) >= self._CurrentKFTime
+				repeat 
+					task.wait()
+				until (os.clock()-kf_begin) >= self._CurrentKFTime
 			else
 				self._CurrentKFTime =  .1
 				self:_InitRestOfKfs(kf)
@@ -143,6 +142,7 @@ function AnimationTrack:_LoopPlay()
 			print("KF")
 		end
 		RunSvc.Stepped:Wait()
+		self._DidLoopEvent:Fire()
 	end
 end
 
@@ -153,21 +153,23 @@ function AnimationTrack:_Play()
 		if NextKf then
 			self._CurrentKFTime =  math.abs(NextKf.Time - kf.Time)
 			self:_InitRestOfKfs(NextKf)
-			repeat task.wait() until (os.clock()-kf_begin) >= self._CurrentKFTime
+			repeat
+				task.wait() 
+			until (os.clock()-kf_begin) >= self._CurrentKFTime
 		else
 			self._CurrentKFTime =  .1
 			self:_InitRestOfKfs(kf)
 		end
 		print("KF")
 	end
+	self._StoppedEvent:Fire()
 end
 
 function AnimationTrack:Play()
-	--self._SteppedEvent = RunSvc.Stepped:Connect(function(time, deltaTime)
 	coroutine.wrap(function()
 		self.IsPlaying = true
 		self._SteppedEvent = RunSvc.Stepped:Connect(function()
-			for MotorName, VMotor in pairs(self._Virtual6Ds) do
+			for _, VMotor in pairs(self._Virtual6Ds) do
 				VMotor:ApplyTransform()
 			end
 		end)
