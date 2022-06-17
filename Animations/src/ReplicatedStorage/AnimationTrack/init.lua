@@ -4,7 +4,6 @@ AnimationTrack.__index = AnimationTrack
 local RunSvc = game:GetService("RunService")
 local Bindable = Instance.new("BindableEvent")
 
-local Animation = require(script.Animation)
 local VirtualMtr6D = require(script.VirtualMotor6D)
 
 local function sortKeyframes(kf1 : Keyframe, kf2 : Keyframe)
@@ -42,23 +41,44 @@ function AnimationTrack.new(KeyframeSequence : KeyframeSequence, Rig : Model)
 	self._StoppedEvent = Bindable:Clone()
 	self._KeyframeReachedEvent = Bindable:Clone()
 	
-	self.Animation = Animation.new()
 	
 	self:_Load(KeyframeSequence)
 	return self
+end
+
+local function _rearrange(parent)
+	for _, v in ipairs(parent:GetChildren()) do
+		if v:IsA("Motor6D") then
+			v.Parent = v.Part1
+		end
+	end
+end
+
+function AnimationTrack:_RearrangeRigMotors()
+	for _, v in ipairs(self._Rig:GetChildren()) do
+		if v:IsA("BasePart") and v:FindFirstChildWhichIsA("Motor6D") then
+			_rearrange(v)
+		end
+	end
 end
 
 function AnimationTrack:_Load(KeyframeSequence : KeyframeSequence)
 	self._OrganizedKeyframes = KeyframeSequence:GetChildren()
 	table.sort(self._OrganizedKeyframes, sortKeyframes)
 	self.Length = self._OrganizedKeyframes[#self._OrganizedKeyframes].Time
+	self:_RearrangeRigMotors()
 	for _, v in ipairs(self._Rig:GetChildren()) do
-		local Motor = v:FindFirstChildWhichIsA("Motor6D")
-		if Motor and Motor.Part1 == v then
-			self._Motor6Ds[v.Name] = Motor
-			self._Virtual6Ds[v.Name] = VirtualMtr6D.new(Motor)
-			print(v.Name)
+		if not v:IsA("BasePart") then continue end
+		for _, motor in ipairs(v:GetChildren()) do
+			if motor:IsA("Motor6D") then
+				if (motor.Part1 == v) then
+					self._Motor6Ds[v.Name] = motor
+					self._Virtual6Ds[v.Name] = VirtualMtr6D.new(motor)
+					print(v.Name)
+				end
+			end
 		end
+		
 	end
 end
 
@@ -74,6 +94,7 @@ end
 ]]
 local function fromParentPoseOfK1(self, children)
 	for _, pose : Pose in ipairs(children or self._OrganizedKeyframes[1].HumanoidRootPart:GetChildren()) do
+		if not pose:IsA("Pose") then continue end
 		local Info = {
 			Time = self._CurrentKFTime;
 			EasingStyle = (string.split(tostring(pose.EasingStyle), "."))[3];
@@ -100,6 +121,7 @@ end
 ]]
 local function fromParentPose(self, nextKeyframe, children)
 	for _, pose : Pose in ipairs(children or nextKeyframe.HumanoidRootPart:GetChildren()) do
+		if not pose:IsA("Pose") then continue end
 		local Info = {
 			Time = self._CurrentKFTime;
 			EasingStyle = (string.split(tostring(pose.EasingStyle), "."))[3];
@@ -132,14 +154,14 @@ function AnimationTrack:_LoopPlay()
 			if NextKf then
 				self._CurrentKFTime =  math.abs(NextKf.Time - kf.Time)
 				self:_InitRestOfKfs(NextKf)
+				
 				repeat 
-					task.wait()
+					RunSvc.Stepped:Wait()
 				until (os.clock()-kf_begin) >= self._CurrentKFTime
 			else
 				self._CurrentKFTime =  .1
 				self:_InitRestOfKfs(kf)
 			end
-			print("KF")
 		end
 		RunSvc.Stepped:Wait()
 		self._DidLoopEvent:Fire()
@@ -166,7 +188,7 @@ function AnimationTrack:_Play()
 end
 
 function AnimationTrack:Play()
-	coroutine.wrap(function()
+	task.spawn(function()
 		self.IsPlaying = true
 		self._SteppedEvent = RunSvc.Stepped:Connect(function()
 			for _, VMotor in pairs(self._Virtual6Ds) do
@@ -182,7 +204,15 @@ function AnimationTrack:Play()
 		else
 			self:_Play()
 		end
-	end)()
+		self:Stop()
+	end)
+end
+
+function AnimationTrack:Stop()
+	if self._SteppedEvent then
+		self._SteppedEvent:Disconnect()
+		self._StoppedEvent:Fire()
+	end
 end
 
 function AnimationTrack:AdjustSpeed(speed: number)
