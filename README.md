@@ -8,6 +8,10 @@ Personally, I got tired of uploading animations to each group that I plan on pub
 
 ### Track:Play()
 
-#### There's other methods, I just haven't bothered to add their functionality yet, the core functionality is not yet done in the least.
+#### This plays the animation loaded.
 
-##### Credit to BoatBomber for Boattween
+### Track:Stop()
+
+#### This stops the animation loaded.
+
+##### Replication functionality is yet to be added to this class. Refrain from using in live games, this is hardly done.
