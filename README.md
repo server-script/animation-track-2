@@ -14,4 +14,8 @@ Personally, I got tired of uploading animations to each group that I plan on pub
 
 #### This stops the animation loaded.
 
-##### Replication functionality is yet to be added to this class. Refrain from using in live games, this is hardly done.
+### Limitations [Functionality not added]
+  * Animation tracks played created in the clients are not automatically replicated.
+  * Large amounts of keyframes cause the animation to slow down over time. [Still under investigation]
+
+##### Refrain from using in live games, this is hardly done.
